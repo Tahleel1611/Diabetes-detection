@@ -1,0 +1,51 @@
+# Core ML libraries
+torch>=2.0.0
+torchvision>=0.15.0
+torchsummary>=1.5.1
+numpy>=1.21.0
+pandas>=1.5.0
+scikit-learn>=1.2.0
+
+# Advanced ML models
+tabnet-pytorch>=4.0
+entmax>=1.0
+
+# Visualization
+matplotlib>=3.6.0
+seaborn>=0.12.0
+plotly>=5.0.0
+
+# Hyperparameter optimization
+optuna>=3.0.0
+hyperopt>=0.2.7
+
+# Utility libraries
+joblib>=1.2.0
+tqdm>=4.64.0
+wandb>=0.15.0
+
+# Data processing
+scipy>=1.9.0
+imbalanced-learn>=0.10.0
+
+# Medical/Healthcare specific
+shap>=0.42.0
+lime>=0.2.0
+
+# Web framework for deployment
+fastapi>=0.100.0
+uvicorn>=0.23.0
+pydantic>=2.0.0
+
+# Data augmentation
+augly>=1.0.0
+
+# Jupyter (optional for development)
+jupyter>=1.0.0
+ipykernel>=6.0.0
+
+# Development tools (optional)
+pytest>=7.0.0
+black>=22.0.0
+flake8>=4.0.0
+streamlit>=1.25.0
