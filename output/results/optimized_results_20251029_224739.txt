@@ -1,0 +1,29 @@
+
+Optimized Diabetes Detection Results - 20251029_224739
+================================================================
+
+HYPERPARAMETER OPTIMIZATION (OPTUNA):
+- Trials: 50
+- Best Cross-Validated AUC: 0.8496
+- Best Parameters:
+  - lr: 0.000604090456086026
+  - dropout_rate: 0.49656753020767197
+  - hidden_dim1: 204
+  - hidden_dim2: 65
+  - weight_decay: 8.653649422038374e-06
+
+FINAL NEURAL NETWORK (ON TEST SET):
+- Accuracy: 0.7922
+- AUC: 0.8815
+- Weighted F1: 0.7930
+
+FINAL RANDOM FOREST (ON TEST SET):
+- Accuracy: 0.7273
+- AUC: 0.8219
+- Weighted F1: 0.7232
+
+Models saved to:
+- Optimized Neural Network: models/enhanced_diabetes_nn.pth
+- Final Random Forest: models/enhanced_diabetes_rf.pkl
+- Final Scaler: models/combined_scaler.pkl
+================================================================

@@ -22,63 +22,15 @@ from sklearn.ensemble import RandomForestClassifier
 import matplotlib.pyplot as plt
 from datetime import datetime
 import seaborn as sns
-from datetime import datetime
+import optuna
+from sklearn.model_selection import KFold
+
+# Import the unified model from models.py
+from models import EnhancedDiabetesModel
 
 # Suppress warnings for cleaner output
 warnings.filterwarnings('ignore')
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
-class EnhancedDiabetesModel(nn.Module):
-    """Enhanced neural network for diabetes detection with better architecture"""
-    
-    def __init__(self, input_size, num_classes=2):
-        super(EnhancedDiabetesModel, self).__init__()
-        self.network = nn.Sequential(
-            # Input layer with dropout
-            nn.Linear(input_size, 256),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            
-            # Hidden layers 
-            nn.Linear(256, 128),
-            nn.ReLU(),
-            nn.Dropout(0.4),
-            
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            
-            nn.Linear(64, 32),
-            nn.ReLU(),
-            nn.Dropout(0.2),
-            
-            # Output layer
-            nn.Linear(32, num_classes)
-        )
-        
-    def forward(self, x):
-        return self.network(x)
-
-class CleanDiabetesModel(nn.Module):
-    """Clean, efficient neural network for diabetes detection"""
-    
-    def __init__(self, input_size, hidden_sizes=[128, 64, 32], dropout_rate=0.3, num_classes=4):
-        super(CleanDiabetesModel, self).__init__()
-        layers = []
-        prev_size = input_size
-        for hidden_size in hidden_sizes:
-            layers.extend([
-                nn.Linear(prev_size, hidden_size),
-                nn.ReLU(),
-                nn.Dropout(dropout_rate)
-            ])
-            prev_size = hidden_size
-        # Output layer for multi-class
-        layers.append(nn.Linear(prev_size, num_classes))
-        # No activation here; nn.CrossEntropyLoss expects raw logits
-        self.network = nn.Sequential(*layers)
-    def forward(self, x):
-        return self.network(x)
 
 class CleanDiabetesTrainer:
     """Clean, efficient trainer for diabetes detection"""
@@ -88,7 +40,6 @@ class CleanDiabetesTrainer:
         self.scaler = StandardScaler()
         self.models = {}
         self.results = {}
-        self.num_classes = 4  # Will be updated based on data
         logging.info(f"Using device: {self.device}")
     
     def load_and_preprocess_data(self):
@@ -226,84 +177,26 @@ class CleanDiabetesTrainer:
         
         return X_train_scaled, X_val_scaled, X_test_scaled, y_train, y_val, y_test
     
-    def create_data_loaders(self, X_train, X_val, X_test, y_train, y_val, y_test, batch_size=128):
-        """Create PyTorch data loaders for multi-class"""
+    def create_data_loaders(self, X_train, X_val, X_test, y_train, y_val, y_test, batch_size=64):
+        """Create PyTorch data loaders for BINARY classification"""
         X_train_tensor = torch.FloatTensor(X_train)
         X_val_tensor = torch.FloatTensor(X_val)
         X_test_tensor = torch.FloatTensor(X_test)
-        y_train_tensor = torch.LongTensor(y_train.values)
-        y_val_tensor = torch.LongTensor(y_val.values)
-        y_test_tensor = torch.LongTensor(y_test.values)
+        
+        # For binary classification with BCEWithLogitsLoss, labels should be FloatTensors of shape (N, 1)
+        y_train_tensor = torch.FloatTensor(y_train.values.reshape(-1, 1))
+        y_val_tensor = torch.FloatTensor(y_val.values.reshape(-1, 1))
+        y_test_tensor = torch.FloatTensor(y_test.values.reshape(-1, 1))
+
         train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
         val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
         test_dataset = TensorDataset(X_test_tensor, y_test_tensor)
+        
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
         test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+        
         return train_loader, val_loader, test_loader
-    
-    def train_neural_network(self, train_loader, val_loader, input_size, epochs=50):
-        """Train the neural network model for multi-class"""
-        model = CleanDiabetesModel(input_size, num_classes=self.num_classes).to(self.device)
-        criterion = nn.CrossEntropyLoss()
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-5)
-        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
-        best_val_f1 = 0
-        patience_counter = 0
-        best_model_state = None
-        train_losses, val_losses, val_f1s = [], [], []
-        logging.info(f"Starting neural network training (multi-class, {self.num_classes} classes)...")
-        for epoch in range(epochs):
-            model.train()
-            train_loss = 0
-            for batch_X, batch_y in train_loader:
-                batch_X, batch_y = batch_X.to(self.device), batch_y.to(self.device)
-                optimizer.zero_grad()
-                outputs = model(batch_X)
-                loss = criterion(outputs, batch_y)
-                loss.backward()
-                optimizer.step()
-                train_loss += loss.item()
-            model.eval()
-            val_loss = 0
-            val_predictions = []
-            val_targets = []
-            with torch.no_grad():
-                for batch_X, batch_y in val_loader:
-                    batch_X, batch_y = batch_X.to(self.device), batch_y.to(self.device)
-                    outputs = model(batch_X)
-                    loss = criterion(outputs, batch_y)
-                    val_loss += loss.item()
-                    preds = torch.argmax(outputs, dim=1).cpu().numpy()
-                    val_predictions.extend(preds)
-                    val_targets.extend(batch_y.cpu().numpy())
-            train_loss /= len(train_loader)
-            val_loss /= len(val_loader)
-            from sklearn.metrics import f1_score
-            val_f1 = f1_score(val_targets, val_predictions, average='weighted')
-            train_losses.append(train_loss)
-            val_losses.append(val_loss)
-            val_f1s.append(val_f1)
-            scheduler.step(val_loss)
-            if val_f1 > best_val_f1:
-                best_val_f1 = val_f1
-                best_model_state = model.state_dict().copy()
-                patience_counter = 0
-            else:
-                patience_counter += 1
-            if (epoch + 1) % 5 == 0:
-                logging.info(f"Epoch {epoch+1}/{epochs} - Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}, Val F1: {val_f1:.4f}")
-            if patience_counter >= 10:
-                logging.info(f"Early stopping at epoch {epoch+1}")
-                break
-        model.load_state_dict(best_model_state)
-        logging.info(f"Neural network training complete - Best Val F1: {best_val_f1:.4f}")
-        return model, {
-            'train_losses': train_losses,
-            'val_losses': val_losses,
-            'val_f1s': val_f1s,
-            'best_val_f1': best_val_f1
-        }
     
     def train_random_forest(self, X_train, X_val, y_train, y_val):
         """Train Random Forest for multi-class comparison"""
@@ -317,67 +210,68 @@ class CleanDiabetesTrainer:
         return rf, val_f1
     
     def evaluate_model(self, model, test_loader, model_name="Model"):
-        """Evaluate model on test set (multi-class)"""
+        """Evaluate model on test set (BINARY)"""
         model.eval()
         predictions = []
         targets = []
+        probas = []
+        from sklearn.metrics import f1_score, roc_auc_score, accuracy_score
         with torch.no_grad():
             for batch_X, batch_y in test_loader:
                 batch_X, batch_y = batch_X.to(self.device), batch_y.to(self.device)
                 outputs = model(batch_X)
-                preds = torch.argmax(outputs, dim=1).cpu().numpy()
-                predictions.extend(preds)
+                
+                # Get probabilities with sigmoid and predictions with a 0.5 threshold
+                batch_probas = torch.sigmoid(outputs)
+                batch_preds = (batch_probas > 0.5).float()
+                
+                probas.extend(batch_probas.cpu().numpy())
+                predictions.extend(batch_preds.cpu().numpy())
                 targets.extend(batch_y.cpu().numpy())
-        predictions = np.array(predictions)
-        targets = np.array(targets)
-        from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
+
+        predictions = np.array(predictions).flatten()
+        targets = np.array(targets).flatten()
+        probas = np.array(probas).flatten()
+
         accuracy = accuracy_score(targets, predictions)
         weighted_f1 = f1_score(targets, predictions, average='weighted')
         macro_f1 = f1_score(targets, predictions, average='macro')
-        # One-vs-rest AUC
-        # For AUC, need probability scores for each class
-        # Re-run loader to get probabilities
-        probas = []
-        with torch.no_grad():
-            for batch_X, _ in test_loader:
-                batch_X = batch_X.to(self.device)
-                outputs = model(batch_X)
-                probas.extend(torch.softmax(outputs, dim=1).cpu().numpy())
-        probas = np.array(probas)
-        try:
-            auc = roc_auc_score(targets, probas, multi_class='ovr', average='weighted')
-        except Exception:
-            auc = None
-        logging.info(f"{model_name} Test Results - Accuracy: {accuracy:.4f}, Weighted F1: {weighted_f1:.4f}, Macro F1: {macro_f1:.4f}, OvR AUC: {auc}")
+        auc = roc_auc_score(targets, probas)
+
+        logging.info(f"{model_name} Test Results - Accuracy: {accuracy:.4f}, Weighted F1: {weighted_f1:.4f}, Macro F1: {macro_f1:.4f}, AUC: {auc:.4f}")
+        
         return {
             'accuracy': accuracy,
             'weighted_f1': weighted_f1,
             'macro_f1': macro_f1,
             'auc': auc,
             'predictions': predictions,
-            'targets': targets
+            'targets': targets,
+            'probas': probas
         }
     
     def evaluate_random_forest(self, rf, X_test, y_test, model_name="Random Forest"):
-        """Evaluate Random Forest on test set (multi-class)"""
+        """Evaluate Random Forest on test set (BINARY)"""
         predictions = rf.predict(X_test)
         probas = rf.predict_proba(X_test)
+        
         from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
         accuracy = accuracy_score(y_test, predictions)
         weighted_f1 = f1_score(y_test, predictions, average='weighted')
         macro_f1 = f1_score(y_test, predictions, average='macro')
-        try:
-            auc = roc_auc_score(y_test, probas, multi_class='ovr', average='weighted')
-        except Exception:
-            auc = None
-        logging.info(f"{model_name} Test Results - Accuracy: {accuracy:.4f}, Weighted F1: {weighted_f1:.4f}, Macro F1: {macro_f1:.4f}, OvR AUC: {auc}")
+        
+        # For binary classification, use probabilities of the positive class (class 1)
+        auc = roc_auc_score(y_test, probas[:, 1])
+
+        logging.info(f"{model_name} Test Results - Accuracy: {accuracy:.4f}, Weighted F1: {weighted_f1:.4f}, Macro F1: {macro_f1:.4f}, AUC: {auc:.4f}")
+        
         return {
             'accuracy': accuracy,
             'weighted_f1': weighted_f1,
             'macro_f1': macro_f1,
             'auc': auc,
             'predictions': predictions,
-            'targets': y_test.values
+            'targets': y_test.values if isinstance(y_test, pd.Series) else y_test
         }
     
     def create_visualizations(self, nn_results, rf_results, nn_history):
@@ -442,15 +336,16 @@ class CleanDiabetesTrainer:
         axes[1, 2].legend()
         axes[1, 2].grid(True, alpha=0.3)
         plt.tight_layout()
-        plt.savefig('plots/clean_model_results.png', dpi=300, bbox_inches='tight')
+        plt.savefig('output/plots/clean_model_results.png', dpi=300, bbox_inches='tight')
         plt.show()
-        logging.info("Visualizations saved to plots/clean_model_results.png")
+        logging.info("Visualizations saved to output/plots/clean_model_results.png")
     
     def save_results(self, nn_model, rf_model, nn_results, rf_results, nn_history):
         """Save models and results"""
         # Create directories
         os.makedirs('models', exist_ok=True)
-        os.makedirs('plots', exist_ok=True)
+        os.makedirs('output/plots', exist_ok=True)
+        os.makedirs('output/results', exist_ok=True)
         
         # Save neural network model
         torch.save(nn_model.state_dict(), 'models/clean_diabetes_nn.pth')
@@ -463,7 +358,7 @@ class CleanDiabetesTrainer:
         # Save results summary
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
-        with open(f'clean_results_{timestamp}.txt', 'w', encoding='utf-8') as f:
+        with open(f'output/results/clean_results_{timestamp}.txt', 'w', encoding='utf-8') as f:
             f.write("CLEAN DIABETES DETECTION MODEL RESULTS\n")
             f.write("=" * 50 + "\n\n")
             
@@ -491,159 +386,112 @@ class CleanDiabetesTrainer:
         logging.info(f"Results saved to clean_results_{timestamp}.txt")
         logging.info("Models saved to models/ directory")
     
-    def train_combined_model(self, X, y):
-        """Train models using combined dataset strategy"""
-        try:
-            print("🚀 Starting combined training with enhanced architecture...")
-            
-            # Split the enhanced Pima data
-            X_train, X_temp, y_train, y_temp = train_test_split(
-                X, y, test_size=0.4, random_state=42, stratify=y
-            )
-            X_val, X_test, y_val, y_test = train_test_split(
-                X_temp, y_temp, test_size=0.5, random_state=42, stratify=y_temp
-            )
-            
-            # Scale the features
+    def objective(self, trial, X, y):
+        """Optuna objective function for hyperparameter tuning"""
+        # Suggest hyperparameters
+        lr = trial.suggest_float("lr", 1e-4, 1e-2, log=True)
+        dropout_rate = trial.suggest_float("dropout_rate", 0.1, 0.5)
+        hidden_dim1 = trial.suggest_int("hidden_dim1", 64, 256)
+        hidden_dim2 = trial.suggest_int("hidden_dim2", 32, 128)
+        weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
+
+        kf = KFold(n_splits=5, shuffle=True, random_state=42)
+        fold_aucs = []
+
+        for fold, (train_index, val_index) in enumerate(kf.split(X, y)):
+            # Data for this fold
+            X_train, X_val = X.iloc[train_index], X.iloc[val_index]
+            y_train, y_val = y.iloc[train_index], y.iloc[val_index]
+
             X_train_scaled = self.scaler.fit_transform(X_train)
             X_val_scaled = self.scaler.transform(X_val)
-            X_test_scaled = self.scaler.transform(X_test)
-            
-            # Save the scaler
-            joblib.dump(self.scaler, 'models/combined_scaler.pkl')
-            
-            print(f"📊 Training set: {X_train_scaled.shape}, Validation: {X_val_scaled.shape}, Test: {X_test_scaled.shape}")
-            
-            # Create data loaders
-            train_loader, val_loader, test_loader = self.create_data_loaders(
-                X_train_scaled, X_val_scaled, X_test_scaled, y_train, y_val, y_test, batch_size=64
+
+            train_loader, val_loader, _ = self.create_data_loaders(
+                X_train_scaled, X_val_scaled, X_val_scaled, y_train, y_val, y_val
             )
-            
-            # Train Enhanced Neural Network
-            print("🧠 Training Enhanced Neural Network...")
-            enhanced_model = EnhancedDiabetesModel(X_train_scaled.shape[1], num_classes=self.num_classes)
-            enhanced_model.to(self.device)
-            
-            # Use different optimizers and learning rates
-            optimizer = optim.AdamW(enhanced_model.parameters(), lr=0.001, weight_decay=0.01)
-            scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.5, patience=10)
-            criterion = nn.CrossEntropyLoss()
-            
-            # Training loop for enhanced model
-            enhanced_history = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}
-            best_val_loss = float('inf')
-            patience = 15
-            patience_counter = 0
-            
-            for epoch in range(100):  # Increased epochs
-                # Training phase
-                enhanced_model.train()
-                train_loss = 0.0
-                train_correct = 0
-                train_total = 0
-                
+
+            model = EnhancedDiabetesModel(
+                input_dim=X_train_scaled.shape[1],
+                hidden_dim1=hidden_dim1,
+                hidden_dim2=hidden_dim2,
+                dropout_rate=dropout_rate
+            ).to(self.device)
+
+            optimizer = optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+            criterion = nn.BCEWithLogitsLoss()
+
+            # Training loop for the fold
+            for epoch in range(25): # Fewer epochs for tuning
+                model.train()
                 for batch_X, batch_y in train_loader:
                     batch_X, batch_y = batch_X.to(self.device), batch_y.to(self.device)
-                    
                     optimizer.zero_grad()
-                    outputs = enhanced_model(batch_X)
+                    outputs = model(batch_X)
                     loss = criterion(outputs, batch_y)
                     loss.backward()
-                    
-                    # Gradient clipping
-                    torch.nn.utils.clip_grad_norm_(enhanced_model.parameters(), max_norm=1.0)
-                    
                     optimizer.step()
-                    
-                    train_loss += loss.item()
-                    _, predicted = torch.max(outputs.data, 1)
-                    train_total += batch_y.size(0)
-                    train_correct += (predicted == batch_y).sum().item()
-                
-                # Validation phase
-                enhanced_model.eval()
-                val_loss = 0.0
-                val_correct = 0
-                val_total = 0
-                
-                with torch.no_grad():
-                    for batch_X, batch_y in val_loader:
-                        batch_X, batch_y = batch_X.to(self.device), batch_y.to(self.device)
-                        outputs = enhanced_model(batch_X)
-                        loss = criterion(outputs, batch_y)
-                        
-                        val_loss += loss.item()
-                        _, predicted = torch.max(outputs.data, 1)
-                        val_total += batch_y.size(0)
-                        val_correct += (predicted == batch_y).sum().item()
-                
-                # Calculate averages
-                avg_train_loss = train_loss / len(train_loader)
-                avg_val_loss = val_loss / len(val_loader)
-                train_acc = 100 * train_correct / train_total
-                val_acc = 100 * val_correct / val_total
-                
-                enhanced_history['train_loss'].append(avg_train_loss)
-                enhanced_history['val_loss'].append(avg_val_loss)
-                enhanced_history['train_acc'].append(train_acc)
-                enhanced_history['val_acc'].append(val_acc)
-                
-                # Learning rate scheduling
-                scheduler.step(avg_val_loss)
-                
-                # Early stopping
-                if avg_val_loss < best_val_loss:
-                    best_val_loss = avg_val_loss
-                    patience_counter = 0
-                    torch.save(enhanced_model.state_dict(), 'models/enhanced_diabetes_nn.pth')
-                else:
-                    patience_counter += 1
-                
-                if (epoch + 1) % 10 == 0:
-                    print(f"Epoch {epoch+1}/100: Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}, Train Acc: {train_acc:.2f}%, Val Acc: {val_acc:.2f}%")
-                
-                if patience_counter >= patience:
-                    print(f"Early stopping at epoch {epoch+1}")
-                    break
+
+            # Validation for the fold
+            model.eval()
+            val_probas = []
+            val_targets = []
+            with torch.no_grad():
+                for batch_X, batch_y in val_loader:
+                    batch_X, batch_y = batch_X.to(self.device), batch_y.to(self.device)
+                    outputs = model(batch_X)
+                    val_probas.extend(torch.sigmoid(outputs).cpu().numpy())
+                    val_targets.extend(batch_y.cpu().numpy())
             
-            # Load best model for evaluation
-            enhanced_model.load_state_dict(torch.load('models/enhanced_diabetes_nn.pth'))
-            enhanced_model.eval()
+            fold_auc = roc_auc_score(val_targets, val_probas)
+            fold_aucs.append(fold_auc)
+
+        return np.mean(fold_aucs)
+
+    def train_final_model(self, X, y, best_params):
+        """Train the final model on the entire dataset using the best hyperparameters"""
+        print("\n🚀 Training final model with optimal hyperparameters...")
+        
+        X_scaled = self.scaler.fit_transform(X)
+        joblib.dump(self.scaler, 'models/combined_scaler.pkl')
+        
+        train_loader, _, _ = self.create_data_loaders(X_scaled, X_scaled, X_scaled, y, y, y, batch_size=64)
+
+        final_model = EnhancedDiabetesModel(
+            input_dim=X_scaled.shape[1],
+            hidden_dim1=best_params['hidden_dim1'],
+            hidden_dim2=best_params['hidden_dim2'],
+            dropout_rate=best_params['dropout_rate']
+        ).to(self.device)
+
+        optimizer = optim.AdamW(
+            final_model.parameters(), 
+            lr=best_params['lr'], 
+            weight_decay=best_params['weight_decay']
+        )
+        criterion = nn.BCEWithLogitsLoss()
+
+        # Train for a sufficient number of epochs
+        for epoch in range(50):
+            final_model.train()
+            total_loss = 0
+            for batch_X, batch_y in train_loader:
+                batch_X, batch_y = batch_X.to(self.device), batch_y.to(self.device)
+                optimizer.zero_grad()
+                outputs = final_model(batch_X)
+                loss = criterion(outputs, batch_y)
+                loss.backward()
+                optimizer.step()
+                total_loss += loss.item()
             
-            # Evaluate Enhanced Neural Network
-            print("📈 Evaluating Enhanced Neural Network...")
-            enhanced_nn_results = self.evaluate_model(enhanced_model, test_loader, "Enhanced Neural Network")
-            
-            # Train Random Forest on enhanced features
-            print("🌲 Training Enhanced Random Forest...")
-            rf_enhanced = RandomForestClassifier(
-                n_estimators=200,
-                max_depth=15,
-                min_samples_split=5,
-                min_samples_leaf=2,
-                random_state=42,
-                class_weight='balanced'
-            )
-            rf_enhanced.fit(X_train_scaled, y_train)
-            
-            # Evaluate Random Forest
-            rf_results = self.evaluate_random_forest(rf_enhanced, X_test_scaled, y_test, "Enhanced Random Forest")
-            
-            # Save models
-            joblib.dump(rf_enhanced, 'models/enhanced_diabetes_rf.pkl')
-            self.models['enhanced_nn'] = enhanced_model
-            self.models['enhanced_rf'] = rf_enhanced
-            self.results['enhanced_nn'] = enhanced_nn_results
-            self.results['enhanced_rf'] = rf_results
-            
-            # Create enhanced visualizations
-            self.create_enhanced_visualizations(enhanced_nn_results, rf_results, enhanced_history)
-            
-            return enhanced_nn_results, rf_results, enhanced_history
-            
-        except Exception as e:
-            logging.error(f"Error in combined training: {e}")
-            raise
+            if (epoch + 1) % 10 == 0:
+                print(f"Final Training Epoch {epoch+1}/50: Avg Loss: {total_loss/len(train_loader):.4f}")
+
+        torch.save(final_model.state_dict(), 'models/enhanced_diabetes_nn.pth')
+        print("✅ Final optimized model trained and saved.")
+        
+        self.models['enhanced_nn'] = final_model
+        return final_model
+
     
     def create_enhanced_visualizations(self, nn_results, rf_results, history):
         """Create enhanced visualizations for combined model performance"""
@@ -728,10 +576,10 @@ class CleanDiabetesTrainer:
             axes[1, 2].set_title('Enhanced Model Performance Summary', fontsize=14, fontweight='bold')
             
             plt.tight_layout()
-            plt.savefig('plots/enhanced_model_results.png', dpi=300, bbox_inches='tight')
+            plt.savefig('output/plots/enhanced_model_results.png', dpi=300, bbox_inches='tight')
             plt.close()
             
-            print("📈 Enhanced visualizations saved to plots/enhanced_model_results.png")
+            print("📈 Enhanced visualizations saved to output/plots/enhanced_model_results.png")
             
         except Exception as e:
             logging.error(f"Error creating enhanced visualizations: {e}")
@@ -784,126 +632,117 @@ class CleanDiabetesTrainer:
             print(f"⚠️ Transfer learning failed: {e}")
 
 def main():
-    """Main training pipeline with combined datasets"""
+    """Main training pipeline with hyperparameter tuning and K-Fold validation"""
     print("\n" + "="*60)
-    print("🏥 ENHANCED DIABETES DETECTION MODEL")
+    print("🏥 OPTIMIZED DIABETES DETECTION MODEL")
     print("="*60)
-    print("📊 Combined Dataset Training - Pima + BRFSS")
+    print("� Hyperparameter Tuning with Optuna & K-Fold CV")
     print("="*60 + "\n")
     
     trainer = CleanDiabetesTrainer()
     
     try:
-        # Load and preprocess combined data
-        print("🔄 Loading and preprocessing combined datasets...")
+        # Load and preprocess data
+        print("🔄 Loading and preprocessing Pima dataset...")
         X, y = trainer.load_and_preprocess_data()
         
-        # Train enhanced models
-        print("🚀 Training enhanced models with combined approach...")
-        enhanced_nn_results, enhanced_rf_results, enhanced_history = trainer.train_combined_model(X, y)
+        # --- Hyperparameter Tuning with Optuna ---
+        print("🧠 Starting hyperparameter tuning with Optuna...")
+        study = optuna.create_study(direction="maximize")
+        study.optimize(lambda trial: trainer.objective(trial, X, y), n_trials=50)
         
-        # Print final results
         print("\n" + "="*60)
-        print("🎯 FINAL ENHANCED RESULTS")
-        print("="*60)
-        print(f"Enhanced Neural Network:")
-        print(f"  📊 Accuracy: {enhanced_nn_results['accuracy']:.4f}")
-        print(f"  📊 Weighted F1: {enhanced_nn_results['weighted_f1']:.4f}")
-        print(f"  📊 Macro F1: {enhanced_nn_results['macro_f1']:.4f}")
-        print(f"\nEnhanced Random Forest:")
-        print(f"  📊 Accuracy: {enhanced_rf_results['accuracy']:.4f}")
-        print(f"  📊 Weighted F1: {enhanced_rf_results['weighted_f1']:.4f}")
-        print(f"  📊 Macro F1: {enhanced_rf_results['macro_f1']:.4f}")
+        print("🏆 OPTUNA STUDY COMPLETE")
+        print(f"  Best Trial AUC: {study.best_value:.4f}")
+        print("  Best Hyperparameters:")
+        for key, value in study.best_params.items():
+            print(f"    - {key}: {value}")
         print("="*60 + "\n")
+
+        # --- Train Final Model ---
+        final_model = trainer.train_final_model(X, y, study.best_params)
+
+        # --- Final Evaluation ---
+        print("\n📈 Evaluating final model on a held-out test set...")
+        # Create a final test set
+        X_train_full, X_test, y_train_full, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
         
-        # Save results with timestamp
+        # Create and save data splits for external use (like interpretability)
+        os.makedirs('output/data', exist_ok=True)
+        X_train_full.to_csv('output/data/X_train_pima.csv', index=False)
+        y_train_full.to_csv('output/data/y_train_pima.csv', index=False)
+        X_test.to_csv('output/data/X_test_pima.csv', index=False)
+        y_test.to_csv('output/data/y_test_pima.csv', index=False)
+        print("✅ Saved final data splits to output/data/")
+
+        X_test_scaled = trainer.scaler.transform(X_test)
+        _, _, test_loader = trainer.create_data_loaders(X_test_scaled, X_test_scaled, X_test_scaled, y_test, y_test, y_test)
+        
+        final_nn_results = trainer.evaluate_model(final_model, test_loader, "Final Optimized NN")
+
+        # --- Train and Evaluate Final Random Forest ---
+        print("\n🌲 Training and evaluating final Random Forest for comparison...")
+        X_train_full_scaled = trainer.scaler.transform(X_train_full)
+        rf_final = RandomForestClassifier(n_estimators=200, random_state=42, class_weight='balanced', n_jobs=-1)
+        rf_final.fit(X_train_full_scaled, y_train_full)
+        final_rf_results = trainer.evaluate_random_forest(rf_final, X_test_scaled, y_test, "Final Random Forest")
+        joblib.dump(rf_final, 'models/enhanced_diabetes_rf.pkl')
+
+        # --- Reporting ---
+        print("\n" + "="*60)
+        print("🎯 FINAL OPTIMIZED RESULTS")
+        print("="*60)
+        print(f"Optimized Neural Network:")
+        print(f"  📊 Test Accuracy: {final_nn_results['accuracy']:.4f}")
+        print(f"  📊 Test AUC: {final_nn_results['auc']:.4f}")
+        print(f"  📊 Test Weighted F1: {final_nn_results['weighted_f1']:.4f}")
+        
+        print(f"\nFinal Random Forest:")
+        print(f"  📊 Test Accuracy: {final_rf_results['accuracy']:.4f}")
+        print(f"  📊 Test AUC: {final_rf_results['auc']:.4f}")
+        print(f"  📊 Test Weighted F1: {final_rf_results['weighted_f1']:.4f}")
+        print("="*60 + "\n")
+
+        # Save a comprehensive report
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         results_summary = f"""
-Enhanced Diabetes Detection Results - {timestamp}
+Optimized Diabetes Detection Results - {timestamp}
 ================================================================
 
-DATASET INFORMATION:
-- Combined Pima Indians (768 samples) + BRFSS (100K sample)
-- Enhanced feature engineering applied
-- Binary classification (Diabetes: Yes/No)
+HYPERPARAMETER OPTIMIZATION (OPTUNA):
+- Trials: 50
+- Best Cross-Validated AUC: {study.best_value:.4f}
+- Best Parameters:
+{os.linesep.join([f"  - {k}: {v}" for k, v in study.best_params.items()])}
 
-ENHANCED NEURAL NETWORK RESULTS:
-- Architecture: Enhanced with dropout and regularization
-- Accuracy: {enhanced_nn_results['accuracy']:.4f}
-- Weighted F1: {enhanced_nn_results['weighted_f1']:.4f}
-- Macro F1: {enhanced_nn_results['macro_f1']:.4f}
-- AUC: {enhanced_nn_results['auc'] if enhanced_nn_results['auc'] else 'N/A'}
+FINAL NEURAL NETWORK (ON TEST SET):
+- Accuracy: {final_nn_results['accuracy']:.4f}
+- AUC: {final_nn_results['auc']:.4f}
+- Weighted F1: {final_nn_results['weighted_f1']:.4f}
 
-ENHANCED RANDOM FOREST RESULTS:
-- n_estimators: 200, max_depth: 15
-- Accuracy: {enhanced_rf_results['accuracy']:.4f}
-- Weighted F1: {enhanced_rf_results['weighted_f1']:.4f}
-- Macro F1: {enhanced_rf_results['macro_f1']:.4f}
-- AUC: {enhanced_rf_results['auc'] if enhanced_rf_results['auc'] else 'N/A'}
-
-IMPROVEMENTS ACHIEVED:
-- Enhanced feature engineering with derived features
-- Better regularization and dropout strategies
-- Combined dataset approach for robustness
-- Improved model architecture
+FINAL RANDOM FOREST (ON TEST SET):
+- Accuracy: {final_rf_results['accuracy']:.4f}
+- AUC: {final_rf_results['auc']:.4f}
+- Weighted F1: {final_rf_results['weighted_f1']:.4f}
 
 Models saved to:
-- Enhanced Neural Network: models/enhanced_diabetes_nn.pth
-- Enhanced Random Forest: models/enhanced_diabetes_rf.pkl
-- Combined Scaler: models/combined_scaler.pkl
-- Feature Names: models/pima_feature_names.pkl
+- Optimized Neural Network: models/enhanced_diabetes_nn.pth
+- Final Random Forest: models/enhanced_diabetes_rf.pkl
+- Final Scaler: models/combined_scaler.pkl
 ================================================================
 """
-        
-        with open(f'enhanced_results_{timestamp}.txt', 'w') as f:
+        report_path = f'output/results/optimized_results_{timestamp}.txt'
+        with open(report_path, 'w') as f:
             f.write(results_summary)
-        
-        print(f"📄 Enhanced results saved to enhanced_results_{timestamp}.txt")
-        print("💾 Enhanced models saved to models/ directory")
-        print("📈 Enhanced visualizations saved to plots/enhanced_model_results.png")
+            
+        print(f"📄 Optimized results report saved to {report_path}")
         
     except Exception as e:
-        logging.error(f"Enhanced training failed: {e}")
+        logging.error(f"An error occurred in the main pipeline: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
-        logging.info("Creating data loaders...")
-        train_loader, val_loader, test_loader = trainer.create_data_loaders(
-            X_train, X_val, X_test, y_train, y_val, y_test
-        )
-        # Train Neural Network
-        logging.info("Training neural network...")
-        nn_model, nn_history = trainer.train_neural_network(
-            train_loader, val_loader, X_train.shape[1]
-        )
-        # Train Random Forest
-        logging.info("Training Random Forest...")
-        rf_model, rf_val_f1 = trainer.train_random_forest(X_train, X_val, y_train, y_val)
-        # Evaluate models
-        logging.info("Evaluating models...")
-        nn_results = trainer.evaluate_model(nn_model, test_loader, "Neural Network")
-        rf_results = trainer.evaluate_random_forest(rf_model, X_test, y_test, "Random Forest")
-        # Create visualizations
-        logging.info("Creating visualizations...")
-        trainer.create_visualizations(nn_results, rf_results, nn_history)
-        # Save results
-        logging.info("Saving models and results...")
-        trainer.save_results(nn_model, rf_model, nn_results, rf_results, nn_history)
-        # Print final summary
-        print("\n" + "="*60)
-        print("🎯 FINAL RESULTS (BRFSS Multi-Class)")
-        print("="*60)
-        print(f"Classes: {trainer.num_classes} ({sorted(y.unique())})")
-        print(f"🔹 Neural Network  - Accuracy: {nn_results['accuracy']:.1%}, Weighted F1: {nn_results['weighted_f1']:.3f}, Macro F1: {nn_results['macro_f1']:.3f}, OvR AUC: {nn_results['auc']}")
-        print(f"🔹 Random Forest   - Accuracy: {rf_results['accuracy']:.1%}, Weighted F1: {rf_results['weighted_f1']:.3f}, Macro F1: {rf_results['macro_f1']:.3f}, OvR AUC: {rf_results['auc']}")
-        best_model = "Neural Network" if nn_results['weighted_f1'] > rf_results['weighted_f1'] else "Random Forest"
-        print(f"🏆 Best Model: {best_model}")
-        print("="*60)
-        print("✅ Training completed successfully!")
-        print("📁 Models saved to models/ directory")
-        print("📊 Results saved to clean_results_*.txt")
-        print("📈 Visualizations saved to plots/clean_model_results.png")
-        print("="*60 + "\n")
+
 
 if __name__ == "__main__":
     main()

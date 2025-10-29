@@ -1,159 +1,131 @@
 #!/usr/bin/env python3
 """
-Simple BRFSS Diabetes Prediction Demo
-Uses pre-trained models to make predictions
+Simple Diabetes Prediction Demo
+Uses the pre-trained and optimized binary classification model.
 """
 
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn as nn
 import joblib
 import warnings
+from models import EnhancedDiabetesModel # Import the correct model
+
 warnings.filterwarnings('ignore')
 
-class CleanDiabetesModel(nn.Module):
-    """Clean, efficient neural network for diabetes detection (multi-class)"""
-    
-    def __init__(self, input_size, hidden_sizes=[128, 64, 32], dropout_rate=0.3, num_classes=4):
-        super(CleanDiabetesModel, self).__init__()
-        
-        layers = []
-        prev_size = input_size
-        
-        for hidden_size in hidden_sizes:
-            layers.extend([
-                nn.Linear(prev_size, hidden_size),
-                nn.ReLU(),
-                nn.Dropout(dropout_rate)
-            ])
-            prev_size = hidden_size
-        
-        # Output layer for multi-class
-        layers.append(nn.Linear(prev_size, num_classes))
-        # No activation here; will use softmax for probabilities
-        
-        self.network = nn.Sequential(*layers)
-    
-    def forward(self, x):
-        return self.network(x)
-
 def predict_diabetes_sample():
-    """Simple prediction demo using pre-trained models"""
+    """Simple prediction demo using the optimized binary classification model."""
     try:
         print("\n" + "="*60)
-        print("🏥 BRFSS DIABETES PREDICTION DEMO")
+        print(" OPTIMIZED DIABETES PREDICTION DEMO")
         print("="*60)
-        print("Classes: 0=No Diabetes, 1=Pre-diabetes, 2=Pre-diabetes/Borderline, 3=Diabetes")
+        print("Classes: 0=No Diabetes, 1=Diabetes")
         print("="*60)
         
-        # Load models and feature names
-        print("📂 Loading trained models...")
+        # --- Load Models and Feature Names ---
+        print(" Loading trained model, scaler, and feature names...")
         
-        # Load feature names and get input size
-        feature_names = joblib.load('models/feature_names.pkl')
+        # Load feature names to determine model input size
+        feature_names = joblib.load('models/pima_feature_names.pkl')
         input_size = len(feature_names)
-        print(f"✅ Feature count: {input_size}")
+        print(f" Feature count: {input_size}")
         
-        # Load scaler
-        scaler = joblib.load('models/clean_scaler.pkl')
-        print("✅ Scaler loaded")
+        # Load the scaler used during training
+        scaler = joblib.load('models/combined_scaler.pkl')
+        print(" Scaler loaded")
         
-        # Load Random Forest
-        rf_model = joblib.load('models/clean_diabetes_rf.pkl')
-        print("✅ Random Forest loaded")
-        
-        # Load Neural Network
+        # Load the optimized Neural Network
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        nn_model = CleanDiabetesModel(input_size, num_classes=4)
-        nn_model.load_state_dict(torch.load('models/clean_diabetes_nn.pth', map_location=device))
-        nn_model.eval()
-        print("✅ Neural Network loaded")
         
-        # Use test data for demonstration
-        print("\n📊 Loading test data for demonstration...")
-        df = pd.read_csv('data/2023_BRFSS_CLEANED.csv')
+        # We need to instantiate the model with the architecture that was found by Optuna
+        # These are the best parameters from the last successful run.
+        best_params = {
+            'hidden_dim1': 235,
+            'hidden_dim2': 95,
+            'dropout_rate': 0.28723006045434735
+        }
+        
+        nn_model = EnhancedDiabetesModel(
+            input_dim=input_size,
+            hidden_dim1=best_params['hidden_dim1'],
+            hidden_dim2=best_params['hidden_dim2'],
+            dropout_rate=best_params['dropout_rate']
+        )
+        nn_model.load_state_dict(torch.load('models/enhanced_diabetes_nn.pth', map_location=device))
+        nn_model.eval()
+        print(" Optimized Neural Network loaded")
+        
+        # --- Load and Preprocess Sample Data ---
+        print("\n Loading sample data from 'diabetes.csv' for demonstration...")
+        df = pd.read_csv('data/diabetes.csv')
         
         # Sample a few patients for demonstration
-        sample_patients = df.sample(n=5, random_state=42)
+        sample_patients = df.sample(n=5, random_state=50)
         
-        # Get target values for comparison
-        true_labels = sample_patients['DIABETES_STATUS'].values
+        # Get true labels for comparison
+        true_labels = sample_patients['Outcome'].values
+        X_sample = sample_patients.drop('Outcome', axis=1)
         
-        # Drop target and apply same preprocessing as training
-        if 'YEAR' in sample_patients.columns:
-            sample_patients = sample_patients.drop('YEAR', axis=1)
-        
-        y_sample = sample_patients['DIABETES_STATUS']
-        X_sample = sample_patients.drop('DIABETES_STATUS', axis=1)
-        
-        # Apply preprocessing
-        categorical_cols = [col for col in X_sample.columns if X_sample[col].dtype == 'object' or X_sample[col].nunique() < 10]
-        numerical_cols = [col for col in X_sample.columns if col not in categorical_cols]
-        
-        # Impute missing values
-        for col in categorical_cols:
-            X_sample[col] = X_sample[col].fillna(X_sample[col].mode()[0] if not X_sample[col].mode().empty else 'Unknown')
-        for col in numerical_cols:
+        # --- Apply Same Preprocessing as in Training ---
+        # 1. Clean zero values
+        zero_replace_cols = ['Glucose', 'BloodPressure', 'SkinThickness', 'Insulin', 'BMI']
+        for col in zero_replace_cols:
+            X_sample[col] = X_sample[col].replace(0, np.nan)
+            # Use the median from the full training data for imputation if needed
+            # For this demo, we'll just fill with the sample's median.
             X_sample[col] = X_sample[col].fillna(X_sample[col].median())
+
+        # 2. Feature Engineering
+        X_sample['BMI_Age'] = X_sample['BMI'] * X_sample['Age']
+        X_sample['Glucose_BMI'] = X_sample['Glucose'] * X_sample['BMI']
+        X_sample['Insulin_Glucose'] = X_sample['Insulin'] * X_sample['Glucose']
+        X_sample['BMI_squared'] = X_sample['BMI'] ** 2
+        X_sample['Age_squared'] = X_sample['Age'] ** 2
+        X_sample['BMI_Age_ratio'] = X_sample['BMI'] / (X_sample['Age'] + 1)
+        X_sample['Glucose_squared'] = X_sample['Glucose'] ** 2
+        X_sample['Glucose_Age_ratio'] = X_sample['Glucose'] / (X_sample['Age'] + 1)
         
-        # One-hot encode
-        X_encoded = pd.get_dummies(X_sample, columns=categorical_cols, drop_first=True)
+        # 3. Align columns with the training feature set
+        X_sample = X_sample.reindex(columns=feature_names, fill_value=0)
         
-        # Align with training features
-        for col in feature_names:
-            if col not in X_encoded.columns:
-                X_encoded[col] = 0
+        # 4. Scale features using the loaded scaler
+        X_scaled = scaler.transform(X_sample)
         
-        # Reorder columns to match training
-        X_encoded = X_encoded.reindex(columns=feature_names, fill_value=0)
+        print(f" Preprocessed {len(X_scaled)} samples")
         
-        # Scale features
-        X_scaled = scaler.transform(X_encoded)
-        
-        print(f"✅ Preprocessed {len(X_scaled)} samples")
-        
-        # Make predictions
-        print("\n🤖 Making Predictions...")
+        # --- Make Predictions ---
+        print("\n Making Predictions...")
         print("-" * 60)
         
-        class_labels = {0: 'No Diabetes', 1: 'Pre-diabetes', 2: 'Pre-diabetes/Borderline', 3: 'Diabetes'}
-        risk_levels = {0: 'Low', 1: 'Medium', 2: 'Medium-High', 3: 'High'}
+        class_labels = {0: 'No Diabetes', 1: 'Diabetes'}
+        risk_levels = {0: 'Low', 1: 'High'}
         
         for i in range(len(X_scaled)):
             print(f"\nPatient {i+1}:")
             print(f"  True Status: {class_labels[true_labels[i]]}")
             
-            # Neural Network prediction
-            input_tensor = torch.FloatTensor(X_scaled[i:i+1])
+            # Neural Network prediction for binary classification
+            input_tensor = torch.FloatTensor(X_scaled[i:i+1]).to(device)
             with torch.no_grad():
                 logits = nn_model(input_tensor)
-                probabilities = torch.softmax(logits, dim=1)
-                nn_pred_class = torch.argmax(probabilities, dim=1).item()
-                nn_class_probs = probabilities.squeeze().numpy()
+                probability = torch.sigmoid(logits).item() # Get single probability
+                prediction = 1 if probability > 0.5 else 0
             
-            print(f"  🤖 Neural Network: {class_labels[nn_pred_class]} ({risk_levels[nn_pred_class]} Risk)")
-            print(f"     Probabilities: {', '.join([f'{class_labels[j]}: {nn_class_probs[j]:.1%}' for j in range(4)])}")
+            print(f"   Prediction: {class_labels[prediction]} ({risk_levels[prediction]} Risk)")
+            print(f"     Confidence (Probability of Diabetes): {probability:.2%}")
             
-            # Random Forest prediction
-            rf_pred_class = rf_model.predict(X_scaled[i:i+1])[0]
-            rf_class_probs = rf_model.predict_proba(X_scaled[i:i+1])[0]
-            
-            print(f"  🌲 Random Forest: {class_labels[rf_pred_class]} ({risk_levels[rf_pred_class]} Risk)")
-            print(f"     Probabilities: {', '.join([f'{class_labels[j]}: {rf_class_probs[j]:.1%}' for j in range(4)])}")
-            
-            # Check if predictions match
-            match_nn = "✅" if nn_pred_class == true_labels[i] else "❌"
-            match_rf = "✅" if rf_pred_class == true_labels[i] else "❌"
-            print(f"  Accuracy: NN {match_nn} | RF {match_rf}")
         
         print("\n" + "="*60)
-        print("✅ Prediction demo completed successfully!")
-        print("💡 This system can predict 4 classes of diabetes status using BRFSS health data")
+        print(" Prediction demo completed successfully!")
+        print(" This system uses an optimized model to predict diabetes risk.")
         print("="*60)
         
+    except FileNotFoundError as e:
+        print(f" Demo failed: A required file was not found.")
+        print(f"   Error: {e}")
+        print("   Please ensure you have run the training script (`train.py`) successfully first.")
     except Exception as e:
-        print(f"❌ Demo failed: {e}")
+        print(f" Demo failed with an unexpected error: {e}")
         import traceback
         traceback.print_exc()
 
