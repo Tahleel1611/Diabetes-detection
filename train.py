@@ -271,121 +271,11 @@ class CleanDiabetesTrainer:
             'macro_f1': macro_f1,
             'auc': auc,
             'predictions': predictions,
-            'targets': y_test.values if isinstance(y_test, pd.Series) else y_test
+            'targets': y_test.values if isinstance(y_test, pd.Series) else y_test,
+            'probas': probas
         }
     
-    def create_visualizations(self, nn_results, rf_results, nn_history):
-        """Create comprehensive visualizations for multi-class"""
-        fig, axes = plt.subplots(2, 3, figsize=(18, 12))
-        epochs = range(1, len(nn_history['train_losses']) + 1)
-        axes[0, 0].plot(epochs, nn_history['train_losses'], 'b-', label='Train Loss')
-        axes[0, 0].plot(epochs, nn_history['val_losses'], 'r-', label='Val Loss')
-        axes[0, 0].set_title('Training History - Loss')
-        axes[0, 0].set_xlabel('Epoch')
-        axes[0, 0].set_ylabel('Loss')
-        axes[0, 0].legend()
-        axes[0, 0].grid(True)
-        axes[0, 1].plot(epochs, nn_history['val_f1s'], 'g-')
-        axes[0, 1].set_title('Validation Weighted F1 Progress')
-        axes[0, 1].set_xlabel('Epoch')
-        axes[0, 1].set_ylabel('Weighted F1')
-        axes[0, 1].grid(True)
-        models = ['Neural Network', 'Random Forest']
-        accuracies = [nn_results['accuracy'], rf_results['accuracy']]
-        aucs = [nn_results['auc'] if nn_results['auc'] is not None else 0, rf_results['auc'] if rf_results['auc'] is not None else 0]
-        x = np.arange(len(models))
-        width = 0.35
-        axes[0, 2].bar(x - width/2, accuracies, width, label='Accuracy', alpha=0.8)
-        axes[0, 2].bar(x + width/2, aucs, width, label='OvR AUC', alpha=0.8)
-        axes[0, 2].set_title('Model Comparison')
-        axes[0, 2].set_ylabel('Score')
-        axes[0, 2].set_xticks(x)
-        axes[0, 2].set_xticklabels(models)
-        axes[0, 2].legend()
-        axes[0, 2].grid(True, alpha=0.3)
-        # Confusion matrices
-        from sklearn.metrics import confusion_matrix
-        for i, (results, name) in enumerate([(nn_results, 'Neural Network'), (rf_results, 'Random Forest')]):
-            cm = confusion_matrix(results['targets'], results['predictions'])
-            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=axes[1, i])
-            axes[1, i].set_title(f'{name} - Confusion Matrix')
-            axes[1, i].set_xlabel('Predicted')
-            axes[1, i].set_ylabel('Actual')
-        # ROC Curve comparison (OvR)
-        from sklearn.metrics import roc_curve
-        # For multi-class, plot OvR ROC for each class
-        for idx, (results, name) in enumerate([(nn_results, 'Neural Network'), (rf_results, 'Random Forest')]):
-            try:
-                y_true = results['targets']
-                if name == 'Neural Network':
-                    # Need probability scores for each class
-                    # For simplicity, skip plotting ROC for now
-                    pass
-                else:
-                    probas = rf_results.get('probas', None)
-                    if probas is not None:
-                        for i in range(probas.shape[1]):
-                            fpr, tpr, _ = roc_curve(y_true == i, probas[:, i])
-                            axes[1, 2].plot(fpr, tpr, label=f'{name} class {i}')
-            except Exception:
-                pass
-        axes[1, 2].plot([0, 1], [0, 1], 'k--', alpha=0.5)
-        axes[1, 2].set_title('OvR ROC Curves')
-        axes[1, 2].set_xlabel('False Positive Rate')
-        axes[1, 2].set_ylabel('True Positive Rate')
-        axes[1, 2].legend()
-        axes[1, 2].grid(True, alpha=0.3)
-        plt.tight_layout()
-        plt.savefig('output/plots/clean_model_results.png', dpi=300, bbox_inches='tight')
-        plt.show()
-        logging.info("Visualizations saved to output/plots/clean_model_results.png")
-    
-    def save_results(self, nn_model, rf_model, nn_results, rf_results, nn_history):
-        """Save models and results"""
-        # Create directories
-        os.makedirs('models', exist_ok=True)
-        os.makedirs('output/plots', exist_ok=True)
-        os.makedirs('output/results', exist_ok=True)
         
-        # Save neural network model
-        torch.save(nn_model.state_dict(), 'models/clean_diabetes_nn.pth')
-        
-        # Save Random Forest model
-        import joblib
-        joblib.dump(rf_model, 'models/clean_diabetes_rf.pkl')
-        joblib.dump(self.scaler, 'models/clean_scaler.pkl')
-        
-        # Save results summary
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        
-        with open(f'output/results/clean_results_{timestamp}.txt', 'w', encoding='utf-8') as f:
-            f.write("CLEAN DIABETES DETECTION MODEL RESULTS\n")
-            f.write("=" * 50 + "\n\n")
-            
-            f.write(f"Timestamp: {timestamp}\n\n")
-            
-            f.write("NEURAL NETWORK RESULTS:\n")
-            f.write(f"  Test Accuracy: {nn_results['accuracy']:.4f} ({nn_results['accuracy']*100:.2f}%)\n")
-            f.write(f"  Test AUC: {nn_results['auc']:.4f} ({nn_results['auc']*100:.2f}%)\n")
-            f.write(f"  Best Validation F1: {nn_history['best_val_f1']:.4f}\n\n")
-            
-            f.write("RANDOM FOREST RESULTS:\n")
-            f.write(f"  Test Accuracy: {rf_results['accuracy']:.4f} ({rf_results['accuracy']*100:.2f}%)\n")
-            f.write(f"  Test AUC: {rf_results['auc']:.4f} ({rf_results['auc']*100:.2f}%)\n\n")
-            
-            f.write("MODEL COMPARISON:\n")
-            nn_better = "[BEST]" if nn_results['auc'] > rf_results['auc'] else ""
-            rf_better = "[BEST]" if rf_results['auc'] > nn_results['auc'] else ""
-            f.write(f"  Neural Network AUC: {nn_results['auc']:.4f} {nn_better}\n")
-            f.write(f"  Random Forest AUC:  {rf_results['auc']:.4f} {rf_better}\n")
-            
-            improvement = abs(nn_results['auc'] - rf_results['auc']) * 100
-            better_model = "Neural Network" if nn_results['auc'] > rf_results['auc'] else "Random Forest"
-            f.write(f"  Best Model: {better_model} (+{improvement:.2f}% AUC)\n")
-        
-        logging.info(f"Results saved to clean_results_{timestamp}.txt")
-        logging.info("Models saved to models/ directory")
-    
     def objective(self, trial, X, y):
         """Optuna objective function for hyperparameter tuning"""
         # Suggest hyperparameters
@@ -493,98 +383,6 @@ class CleanDiabetesTrainer:
         return final_model
 
     
-    def create_enhanced_visualizations(self, nn_results, rf_results, history):
-        """Create enhanced visualizations for combined model performance"""
-        try:
-            fig, axes = plt.subplots(2, 3, figsize=(20, 12))
-            
-            # Training history
-            epochs = range(1, len(history['train_loss']) + 1)
-            axes[0, 0].plot(epochs, history['train_loss'], 'b-', label='Train Loss', linewidth=2)
-            axes[0, 0].plot(epochs, history['val_loss'], 'r-', label='Val Loss', linewidth=2)
-            axes[0, 0].set_title('Enhanced Model - Training History', fontsize=14, fontweight='bold')
-            axes[0, 0].set_xlabel('Epoch')
-            axes[0, 0].set_ylabel('Loss')
-            axes[0, 0].legend()
-            axes[0, 0].grid(True, alpha=0.3)
-            
-            # Training accuracy
-            axes[0, 1].plot(epochs, history['train_acc'], 'b-', label='Train Acc', linewidth=2)
-            axes[0, 1].plot(epochs, history['val_acc'], 'r-', label='Val Acc', linewidth=2)
-            axes[0, 1].set_title('Enhanced Model - Accuracy Progress', fontsize=14, fontweight='bold')
-            axes[0, 1].set_xlabel('Epoch')
-            axes[0, 1].set_ylabel('Accuracy (%)')
-            axes[0, 1].legend()
-            axes[0, 1].grid(True, alpha=0.3)
-            
-            # Model comparison
-            models = ['Enhanced NN', 'Enhanced RF']
-            accuracies = [nn_results['accuracy'], rf_results['accuracy']]
-            f1_scores = [nn_results['weighted_f1'], rf_results['weighted_f1']]
-            
-            x = np.arange(len(models))
-            width = 0.35
-            
-            axes[0, 2].bar(x - width/2, accuracies, width, label='Accuracy', alpha=0.8, color='skyblue')
-            axes[0, 2].bar(x + width/2, f1_scores, width, label='Weighted F1', alpha=0.8, color='lightcoral')
-            axes[0, 2].set_xlabel('Models')
-            axes[0, 2].set_ylabel('Score')
-            axes[0, 2].set_title('Enhanced Model Performance Comparison', fontsize=14, fontweight='bold')
-            axes[0, 2].set_xticks(x)
-            axes[0, 2].set_xticklabels(models)
-            axes[0, 2].legend()
-            axes[0, 2].grid(True, alpha=0.3)
-            
-            # Confusion matrices
-            from sklearn.metrics import confusion_matrix
-            
-            # NN confusion matrix
-            cm_nn = confusion_matrix(nn_results['targets'], nn_results['predictions'])
-            im1 = axes[1, 0].imshow(cm_nn, interpolation='nearest', cmap=plt.cm.Blues)
-            axes[1, 0].set_title('Enhanced NN - Confusion Matrix', fontsize=14, fontweight='bold')
-            for i in range(cm_nn.shape[0]):
-                for j in range(cm_nn.shape[1]):
-                    axes[1, 0].text(j, i, str(cm_nn[i, j]), ha="center", va="center", 
-                                  color="white" if cm_nn[i, j] > cm_nn.max() / 2 else "black")
-            
-            # RF confusion matrix
-            cm_rf = confusion_matrix(rf_results['targets'], rf_results['predictions'])
-            im2 = axes[1, 1].imshow(cm_rf, interpolation='nearest', cmap=plt.cm.Greens)
-            axes[1, 1].set_title('Enhanced RF - Confusion Matrix', fontsize=14, fontweight='bold')
-            for i in range(cm_rf.shape[0]):
-                for j in range(cm_rf.shape[1]):
-                    axes[1, 1].text(j, i, str(cm_rf[i, j]), ha="center", va="center",
-                                  color="white" if cm_rf[i, j] > cm_rf.max() / 2 else "black")
-            
-            # Performance metrics summary
-            metrics_data = {
-                'Model': ['Enhanced NN', 'Enhanced RF'],
-                'Accuracy': [f"{nn_results['accuracy']:.4f}", f"{rf_results['accuracy']:.4f}"],
-                'Weighted F1': [f"{nn_results['weighted_f1']:.4f}", f"{rf_results['weighted_f1']:.4f}"],
-                'Macro F1': [f"{nn_results['macro_f1']:.4f}", f"{rf_results['macro_f1']:.4f}"]
-            }
-            
-            axes[1, 2].axis('tight')
-            axes[1, 2].axis('off')
-            table = axes[1, 2].table(cellText=[[metrics_data['Accuracy'][0], metrics_data['Weighted F1'][0], metrics_data['Macro F1'][0]],
-                                             [metrics_data['Accuracy'][1], metrics_data['Weighted F1'][1], metrics_data['Macro F1'][1]]],
-                                   rowLabels=metrics_data['Model'],
-                                   colLabels=['Accuracy', 'Weighted F1', 'Macro F1'],
-                                   cellLoc='center', loc='center')
-            table.auto_set_font_size(False)
-            table.set_fontsize(12)
-            axes[1, 2].set_title('Enhanced Model Performance Summary', fontsize=14, fontweight='bold')
-            
-            plt.tight_layout()
-            plt.savefig('output/plots/enhanced_model_results.png', dpi=300, bbox_inches='tight')
-            plt.close()
-            
-            print("📈 Enhanced visualizations saved to output/plots/enhanced_model_results.png")
-            
-        except Exception as e:
-            logging.error(f"Error creating enhanced visualizations: {e}")
-            print(f"⚠️ Could not create enhanced visualizations: {e}")
-    
     def train_transfer_learning_model(self):
         """Train a transfer learning model using BRFSS then fine-tune on Pima"""
         try:
@@ -630,6 +428,85 @@ class CleanDiabetesTrainer:
         except Exception as e:
             logging.error(f"Error in transfer learning: {e}")
             print(f"⚠️ Transfer learning failed: {e}")
+
+    def create_final_visualizations(self, nn_results, rf_results, rf_model, feature_names, study):
+        """Create a dashboard of final visualizations."""
+        print("🎨 Generating final visualization dashboard...")
+        os.makedirs('output/plots', exist_ok=True)
+        plt.style.use('seaborn-v0_8-whitegrid')
+
+        # 1. Confusion Matrices
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 6))
+        fig.suptitle('Model Performance: Confusion Matrices', fontsize=16, fontweight='bold')
+        
+        cm_nn = confusion_matrix(nn_results['targets'], nn_results['predictions'])
+        sns.heatmap(cm_nn, annot=True, fmt='d', cmap='Blues', ax=ax1, cbar=False,
+                    xticklabels=['No Diabetes', 'Diabetes'], yticklabels=['No Diabetes', 'Diabetes'])
+        ax1.set_title('Optimized Neural Network', fontsize=12)
+        ax1.set_xlabel('Predicted')
+        ax1.set_ylabel('Actual')
+
+        cm_rf = confusion_matrix(rf_results['targets'], rf_results['predictions'])
+        sns.heatmap(cm_rf, annot=True, fmt='d', cmap='Greens', ax=ax2, cbar=False,
+                    xticklabels=['No Diabetes', 'Diabetes'], yticklabels=['No Diabetes', 'Diabetes'])
+        ax2.set_title('Final Random Forest', fontsize=12)
+        ax2.set_xlabel('Predicted')
+        ax2.set_ylabel('Actual')
+        
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        plt.savefig('output/plots/final_confusion_matrices.png', dpi=300)
+        plt.close()
+
+        # 2. ROC Curves
+        from sklearn.metrics import roc_curve
+        plt.figure(figsize=(10, 8))
+        
+        fpr_nn, tpr_nn, _ = roc_curve(nn_results['targets'], nn_results['probas'])
+        plt.plot(fpr_nn, tpr_nn, label=f"Neural Network (AUC = {nn_results['auc']:.4f})", color='blue', lw=2)
+
+        fpr_rf, tpr_rf, _ = roc_curve(rf_results['targets'], rf_results['probas'][:, 1])
+        plt.plot(fpr_rf, tpr_rf, label=f"Random Forest (AUC = {rf_results['auc']:.4f})", color='green', lw=2)
+
+        plt.plot([0, 1], [0, 1], 'k--', label='Chance (AUC = 0.50)')
+        plt.title('Receiver Operating Characteristic (ROC) Curve', fontsize=16, fontweight='bold')
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.legend(loc='lower right')
+        plt.grid(True)
+        plt.savefig('output/plots/final_roc_curves.png', dpi=300)
+        plt.close()
+
+        # 3. RF Feature Importance
+        plt.figure(figsize=(12, 8))
+        importances = rf_model.feature_importances_
+        feature_df = pd.DataFrame({'Feature': feature_names, 'Importance': importances})
+        feature_df = feature_df.sort_values(by='Importance', ascending=False)
+
+        sns.barplot(x='Importance', y='Feature', data=feature_df, palette='viridis')
+        plt.title('Random Forest Feature Importance', fontsize=16, fontweight='bold')
+        plt.xlabel('Importance')
+        plt.ylabel('Feature')
+        plt.tight_layout()
+        plt.savefig('output/plots/rf_feature_importance.png', dpi=300)
+        plt.close()
+
+        # 4. Optuna Visualizations
+        try:
+            import kaleido # Explicitly import to help with pathing
+            import plotly.io as pio
+            pio.kaleido.scope.mathjax = None # Workaround for a common kaleido issue
+
+            fig_opt_hist = optuna.visualization.plot_optimization_history(study)
+            fig_opt_hist.write_image("output/plots/optuna_optimization_history.png", engine="kaleido", scale=2)
+
+            fig_param_imp = optuna.visualization.plot_param_importances(study)
+            fig_param_imp.write_image("output/plots/optuna_param_importances.png", engine="kaleido", scale=2)
+        except ImportError:
+            logging.warning("Kaleido package not found. Please install it (`pip install kaleido`) to save Optuna plots.")
+        except Exception as e:
+            logging.warning(f"Could not generate Optuna plots. Error: {e}")
+
+        print("✅ All visualizations saved to output/plots/")
 
 def main():
     """Main training pipeline with hyperparameter tuning and K-Fold validation"""
@@ -702,6 +579,15 @@ def main():
         print(f"  📊 Test AUC: {final_rf_results['auc']:.4f}")
         print(f"  📊 Test Weighted F1: {final_rf_results['weighted_f1']:.4f}")
         print("="*60 + "\n")
+
+        # --- Create Visualizations ---
+        trainer.create_final_visualizations(
+            final_nn_results, 
+            final_rf_results, 
+            rf_final, 
+            trainer.pima_feature_names, 
+            study
+        )
 
         # Save a comprehensive report
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

@@ -23,8 +23,8 @@ share/python-wheels/
 MANIFEST
 
 # PyTorch
-*.pth
-*.pt
+# *.pth
+# *.pt
 
 # Virtual environments
 .env
@@ -65,9 +65,9 @@ temp/
 tmp/
 
 # Model artifacts (keep models/ directory but ignore large experimental files)
-models/*enhanced*
-models/*hybrid*
-models/*experimental*
+# models/*enhanced*
+# models/*hybrid*
+# models/*experimental*
 # Keep essential production models
 !models/clean_diabetes_nn.pth
 !models/clean_diabetes_rf.pkl

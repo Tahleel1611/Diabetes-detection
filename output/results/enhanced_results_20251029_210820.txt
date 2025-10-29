@@ -1,0 +1,35 @@
+
+Enhanced Diabetes Detection Results - 20251029_210820
+================================================================
+
+DATASET INFORMATION:
+- Combined Pima Indians (768 samples) + BRFSS (100K sample)
+- Enhanced feature engineering applied
+- Binary classification (Diabetes: Yes/No)
+
+ENHANCED NEURAL NETWORK RESULTS:
+- Architecture: Enhanced with dropout and regularization
+- Accuracy: 0.7597
+- Weighted F1: 0.7567
+- Macro F1: 0.7275
+- AUC: N/A
+
+ENHANCED RANDOM FOREST RESULTS:
+- n_estimators: 200, max_depth: 15
+- Accuracy: 0.7273
+- Weighted F1: 0.7284
+- Macro F1: 0.7006
+- AUC: N/A
+
+IMPROVEMENTS ACHIEVED:
+- Enhanced feature engineering with derived features
+- Better regularization and dropout strategies
+- Combined dataset approach for robustness
+- Improved model architecture
+
+Models saved to:
+- Enhanced Neural Network: models/enhanced_diabetes_nn.pth
+- Enhanced Random Forest: models/enhanced_diabetes_rf.pkl
+- Combined Scaler: models/combined_scaler.pkl
+- Feature Names: models/pima_feature_names.pkl
+================================================================
