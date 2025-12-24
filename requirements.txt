@@ -1,14 +1,18 @@
 # Core Libraries
-torch
-pandas
-numpy
-scikit-learn
-matplotlib
-seaborn
-joblib
+torch==2.1.2
+pandas==2.1.4
+numpy==1.26.2
+scikit-learn==1.3.2
+matplotlib==3.8.2
+seaborn==0.13.0
+joblib==1.3.2
 
 # Hyperparameter Optimization
-optuna
+optuna==3.5.0
+kaleido==0.2.1
 
 # Model Interpretability
-shap
+shap==0.44.1
+
+# Additional dependencies
+plotly==5.18.0
