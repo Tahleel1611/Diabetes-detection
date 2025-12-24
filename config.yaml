@@ -1,0 +1,123 @@
+# Configuration file for Diabetes Detection Training
+# All hardcoded values are centralized here for easy modification
+
+# Model Architecture
+model:
+  # Neural Network architecture
+  hidden_dim1: 128
+  hidden_dim2: 64
+  dropout_rate: 0.4
+  use_batch_norm: true
+  
+  # Random Forest parameters
+  rf_n_estimators: 200
+  rf_random_state: 42
+  rf_class_weight: 'balanced'
+
+# Training Parameters
+training:
+  batch_size: 64
+  learning_rate: 0.001
+  weight_decay: 0.01
+  
+  # Epochs
+  pretrain_epochs: 20
+  final_epochs: 50
+  tuning_epochs: 25
+  
+  # Early stopping
+  patience: 10
+  min_delta: 0.001
+  
+  # Device
+  device: 'auto'  # 'auto', 'cuda', or 'cpu'
+
+# Hyperparameter Tuning (Optuna)
+optuna:
+  n_trials: 50
+  direction: 'maximize'  # maximize AUC
+  
+  # Search space
+  lr_range: [1e-4, 1e-2]
+  dropout_range: [0.1, 0.5]
+  hidden_dim1_range: [64, 256]
+  hidden_dim2_range: [32, 128]
+  weight_decay_range: [1e-6, 1e-2]
+
+# K-Fold Cross Validation
+cross_validation:
+  n_splits: 5
+  shuffle: true
+  random_state: 42
+
+# Data Parameters
+data:
+  # Dataset paths
+  pima_path: 'data/diabetes.csv'
+  brfss_path: 'data/2023_BRFSS_CLEANED.csv'
+  
+  # Sampling
+  brfss_sample_size: 100000
+  random_state: 42
+  
+  # Train/Val/Test splits
+  test_size: 0.2
+  val_size: 0.2
+  
+  # Feature engineering
+  create_interaction_features: true
+  create_polynomial_features: true
+  polynomial_degree: 2
+  
+  # Data cleaning
+  zero_replace_cols:
+    - 'Glucose'
+    - 'BloodPressure'
+    - 'SkinThickness'
+    - 'Insulin'
+    - 'BMI'
+  
+  impute_strategy: 'median'  # 'mean', 'median', or 'mode'
+
+# Output Paths
+paths:
+  models_dir: 'models'
+  output_dir: 'output'
+  plots_dir: 'output/plots'
+  data_dir: 'output/data'
+  results_dir: 'output/results'
+  explanations_dir: 'explanations'
+  
+  # Model filenames
+  nn_model_file: 'enhanced_diabetes_nn.pth'
+  rf_model_file: 'enhanced_diabetes_rf.pkl'
+  scaler_file: 'combined_scaler.pkl'
+  pima_features_file: 'pima_feature_names.pkl'
+  brfss_features_file: 'brfss_feature_names.pkl'
+
+# Logging
+logging:
+  level: 'INFO'  # 'DEBUG', 'INFO', 'WARNING', 'ERROR'
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  log_to_file: true
+  log_file: 'training.log'
+
+# Visualization
+visualization:
+  style: 'seaborn-v0_8-whitegrid'
+  dpi: 300
+  figure_format: 'png'
+  save_plots: true
+  
+  # Plot types to generate
+  generate_confusion_matrix: true
+  generate_roc_curve: true
+  generate_feature_importance: true
+  generate_optuna_plots: true
+  generate_calibration_curve: false
+
+# Random Seeds (for reproducibility)
+seeds:
+  global_seed: 42
+  torch_seed: 42
+  numpy_seed: 42
