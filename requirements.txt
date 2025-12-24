@@ -16,3 +16,4 @@ shap==0.44.1
 
 # Additional dependencies
 plotly==5.18.0
+pyyaml==6.0.1
